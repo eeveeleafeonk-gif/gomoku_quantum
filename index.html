@@ -159,7 +159,6 @@
     function drawBoard() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // グリッド線
         ctx.strokeStyle = '#333';
         ctx.lineWidth = 1;
         for (let i = 0; i < SIZE; i++) {
@@ -167,11 +166,9 @@
             ctx.beginPath(); ctx.moveTo(p, CELL_SIZE/2); ctx.lineTo(p, canvas.height - CELL_SIZE/2); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(CELL_SIZE/2, p); ctx.lineTo(canvas.width - CELL_SIZE/2, p); ctx.stroke();
         }
-        // 特異点（中央）
         ctx.fillStyle = '#ff4444';
         ctx.beginPath(); ctx.arc(7.5 * CELL_SIZE, 7.5 * CELL_SIZE, 4, 0, Math.PI*2); ctx.fill();
 
-        // 駒
         for (let r = 0; r < SIZE; r++) {
             for (let c = 0; c < SIZE; c++) {
                 let val = board[r][c];
@@ -208,7 +205,6 @@
         document.getElementById('turn-info').style.color = turnColor;
         document.getElementById('obs-info').innerHTML = `観測残<br>P1: ${obsLeft[1]} / ${p2Name}: ${obsLeft[2]}`;
 
-        // ラジオボタンの制御 (10%, 90% 連続禁止)
         const radios = document.querySelectorAll('input[name="prob"]');
         let currentProb = document.querySelector('input[name="prob"]:checked').value;
         
@@ -243,9 +239,8 @@
 
         if (r >= 0 && r < SIZE && c >= 0 && c < SIZE && board[r][c] === 'E') {
             let prob = parseInt(document.querySelector('input[name="prob"]:checked').value);
-            if (lastExtreme[currentPlayer] && (prob === 10 || prob === 90)) return; // 安全装置
+            if (lastExtreme[currentPlayer] && (prob === 10 || prob === 90)) return;
 
-            // 履歴保存 (ディープコピー)
             historyStack.push(JSON.parse(JSON.stringify(board)));
             
             board[r][c] = prob;
@@ -306,18 +301,31 @@
         }
     }
 
-    // --- CPU思考 ---
+    // --- CPU思考（賢くなったバージョン） ---
     function cpuTurn() {
         if (gameOver) return;
-        let empty = [];
+
+        let bestScore = -1;
+        let bestMoves = [];
+
+        // 盤面の全空きマスを評価して最適な場所を探す
         for (let r = 0; r < SIZE; r++) {
             for (let c = 0; c < SIZE; c++) {
-                if (board[r][c] === 'E') empty.push({r, c});
+                if (board[r][c] === 'E') {
+                    let score = evaluateCell(r, c);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMoves = [{r, c}];
+                    } else if (score === bestScore) {
+                        bestMoves.push({r, c});
+                    }
+                }
             }
         }
-        if (empty.length === 0) { finishTurn(); return; }
 
-        let target = empty[Math.floor(Math.random() * empty.length)];
+        if (bestMoves.length === 0) { finishTurn(); return; }
+
+        let target = bestMoves[Math.floor(Math.random() * bestMoves.length)];
         let prob = lastExtreme[2] ? 30 : 10;
         
         historyStack.push(JSON.parse(JSON.stringify(board)));
@@ -327,18 +335,58 @@
         
         document.getElementById('gimmick-msg').innerText = "CPUが配置しました...";
         drawBoard();
-        updateUI(); // CPU配置後に「観測せず交代」状態などを更新（ボタンはDisabled維持だが内部フラグ用）
+        updateUI();
 
+        // 観測するかどうかの判断
         setTimeout(() => {
             if (gameOver) return;
-            let placedCount = SIZE * SIZE - empty.length;
-            let obsChance = 0.05 + (placedCount * 0.015);
-            if (obsLeft[2] > 0 && Math.random() < obsChance) {
+            // 評価値が1000以上（4連などの強力なリーチ・ピンチ）かつ観測権があれば、高確率で観測を仕掛ける
+            if (obsLeft[2] > 0 && bestScore >= 1000 && Math.random() < 0.7) {
                 actionObserve();
             } else {
                 actionPass();
             }
         }, 800);
+    }
+
+    // CPU用の評価関数
+    function evaluateCell(r, c) {
+        let score = 0;
+        const dirs = [[1, 0], [0, 1], [1, 1], [1, -1]]; 
+        
+        for (let d of dirs) {
+            let wLine = countConsecutive(r, c, d[0], d[1], 'W');
+            let bLine = countConsecutive(r, c, d[0], d[1], 'B');
+            
+            score += Math.pow(10, wLine) * 1.1; // 自分の攻撃
+            score += Math.pow(10, bLine);       // 相手の妨害
+        }
+        return score;
+    }
+
+    function countConsecutive(r, c, dr, dc, targetColor) {
+        let count = 1;
+        for (let dir of [1, -1]) {
+            for (let i = 1; i <= 4; i++) {
+                let nr = r + dr * i * dir;
+                let nc = c + dc * i * dir;
+                if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                    let val = board[nr][nc];
+                    if (val === targetColor) {
+                        count++;
+                    } else if (typeof val === 'number') {
+                        if (targetColor === 'W' && val <= 30) count += 0.5;
+                        else if (targetColor === 'B' && val >= 70) count += 0.5;
+                        else break;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        return count;
     }
 
     function actionUndo() {
@@ -364,12 +412,10 @@
                 if(wCnt >= 5) wWin = true;
             }
         };
-        // 横と縦
         for (let i = 0; i < SIZE; i++) {
             check5(board[i]);
             check5(board.map(row => row[i]));
         }
-        // 斜め
         for (let i = 0; i <= SIZE - 5; i++) {
             for (let j = 0; j <= SIZE - 5; j++) {
                 let diag1 = [], diag2 = [];
