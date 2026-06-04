@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quantum Gomoku Ultimate</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0a;
+            --panel-bg: #111;
+            --accent: #deff9a;
+            --danger: #ff4444;
+            --text-main: #fff;
+            --text-sub: #aaa;
+        }
+        * { box-sizing: border-box; font-family: 'Arial', sans-serif; touch-action: manipulation; }
+        body { margin: 0; padding: 0; background-color: var(--bg-dark); color: var(--text-main); display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        
+        /* スタート画面 */
+        #startup-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; width: 100%; padding: 20px; text-align: center; }
+        h1 { color: var(--accent); font-size: 32px; margin: 0 0 10px 0; }
+        .subtitle { color: var(--danger); font-weight: bold; margin-bottom: 40px; }
+        .setting-group { background: var(--panel-bg); padding: 20px; border-radius: 12px; margin-bottom: 20px; width: 100%; max-width: 400px; text-align: left; }
+        .setting-group h3 { margin-top: 0; color: var(--accent); border-bottom: 1px solid #333; padding-bottom: 10px; }
+        label { display: block; margin: 15px 0; font-size: 16px; cursor: pointer; }
+        input[type="radio"] { transform: scale(1.5); margin-right: 10px; accent-color: var(--accent); }
+        .start-btn { background: var(--accent); color: #000; border: none; padding: 15px 40px; font-size: 20px; font-weight: bold; border-radius: 8px; margin-top: 20px; cursor: pointer; width: 100%; max-width: 400px; }
+
+        /* ゲーム画面 */
+        #game-screen { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 500px; padding: 10px; }
+        .header { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .turn-info { font-size: 18px; font-weight: bold; color: var(--accent); }
+        .obs-info { font-size: 12px; color: var(--text-sub); text-align: right; }
+        
+        #gimmick-msg { color: var(--danger); font-weight: bold; font-size: 14px; min-height: 20px; margin-bottom: 5px; text-align: center; }
+        
+        canvas { background: #1a1a1a; width: 100%; aspect-ratio: 1/1; border: 2px solid #333; border-radius: 8px; touch-action: none; }
+        
+        .controls { width: 100%; background: var(--panel-bg); padding: 15px; border-radius: 12px; margin-top: 15px; }
+        .prob-selector { display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .prob-selector label { margin: 0; flex: 1; text-align: center; background: #222; padding: 10px 0; border-radius: 6px; margin: 0 5px; font-weight: bold; }
+        .prob-selector input:checked + span { color: var(--accent); }
+        
+        .action-btns { display: flex; gap: 10px; margin-bottom: 15px; }
+        .btn { flex: 1; padding: 15px 0; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-obs { background: #4a90e2; color: #fff; }
+        .btn-pass { background: #555; color: #fff; }
+        
+        .util-btns { display: flex; gap: 10px; }
+        .btn-util { flex: 1; padding: 10px 0; font-size: 14px; background: transparent; color: var(--text-sub); border: 1px solid #444; border-radius: 6px; }
+    </style>
+</head>
+<body>
+
+    <div id="startup-screen">
+        <h1>QUANTUM GOMOKU</h1>
+        <div class="subtitle">ULTIMATE EDITION</div>
+
+        <div class="setting-group">
+            <h3>対戦モード</h3>
+            <label><input type="radio" name="mode" value="PVP" checked> <span>2人プレイ (交互に操作)</span></label>
+            <label><input type="radio" name="mode" value="CPU"> <span>1人プレイ (vs CPU)</span></label>
+        </div>
+
+        <div class="setting-group">
+            <h3>ルール設定</h3>
+            <label><input type="radio" name="party" value="true" checked> <span>パーティ (毎ターンギミック)</span></label>
+            <label><input type="radio" name="party" value="false"> <span>スタンダード (ギミックなし)</span></label>
+        </div>
+
+        <button class="start-btn" onclick="startGame()">GAME START</button>
+    </div>
+
+    <div id="game-screen">
+        <div class="header">
+            <div id="turn-info" class="turn-info">P1のターン (黒狙い)</div>
+            <div id="obs-info" class="obs-info">観測残<br>P1: 3 / P2: 3</div>
+        </div>
+        
+        <div id="gimmick-msg"></div>
+        
+        <canvas id="board" width="600" height="600"></canvas>
+        
+        <div class="controls">
+            <div style="font-size: 12px; color: #aaa; margin-bottom: 5px; text-align: center;">配置する駒の黒確率</div>
+            <div class="prob-selector">
+                <label><input type="radio" name="prob" value="90" checked><span>90%</span></label>
+                <label><input type="radio" name="prob" value="70"><span>70%</span></label>
+                <label><input type="radio" name="prob" value="30"><span>30%</span></label>
+                <label><input type="radio" name="prob" value="10"><span>10%</span></label>
+            </div>
+            
+            <div class="action-btns">
+                <button id="btn-obs" class="btn btn-obs" disabled onclick="actionObserve()">観測する</button>
+                <button id="btn-pass" class="btn btn-pass" disabled onclick="actionPass()">観測せず交代</button>
+            </div>
+            
+            <div class="util-btns">
+                <button class="btn btn-util" onclick="actionUndo()">一手戻す</button>
+                <button class="btn btn-util" onclick="showStartup()">タイトルへ</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const SIZE = 15;
+    let board = [];
+    let historyStack = [];
+    let backupForObs = null;
+    let obsLeft = { 1: 3, 2: 3 };
+    let lastExtreme = { 1: false, 2: false };
+    let currentPlayer = 1;
+    let hasPlaced = false;
+    let gameOver = false;
+    let gameMode = "PVP";
+    let isPartyMode = true;
+
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const CELL_SIZE = 600 / SIZE;
+
+    // --- ゲームの初期化 ---
+    function initGameState() {
+        board = Array(SIZE).fill().map(() => Array(SIZE).fill('E'));
+        historyStack = [];
+        backupForObs = null;
+        obsLeft = { 1: 3, 2: 3 };
+        lastExtreme = { 1: false, 2: false };
+        currentPlayer = 1;
+        hasPlaced = false;
+        gameOver = false;
+        document.getElementById('gimmick-msg').innerText = "";
+    }
+
+    function showStartup() {
+        document.getElementById('startup-screen').style.display = 'flex';
+        document.getElementById('game-screen').style.display = 'none';
+    }
+
+    function startGame() {
+        gameMode = document.querySelector('input[name="mode"]:checked').value;
+        isPartyMode = document.querySelector('input[name="party"]:checked').value === "true";
+        initGameState();
+        document.getElementById('startup-screen').style.display = 'none';
+        document.getElementById('game-screen').style.display = 'flex';
+        updateUI();
+        drawBoard();
+    }
+
+    // --- 描画処理 ---
+    function getColor(prob) {
+        if (prob === 'B') return '#000000';
+        if (prob === 'W') return '#ffffff';
+        let val = Math.floor(255 * (1 - prob / 100));
+        return `rgb(${val}, ${val}, ${val})`;
+    }
+
+    function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // グリッド線
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < SIZE; i++) {
+            let p = i * CELL_SIZE + CELL_SIZE / 2;
+            ctx.beginPath(); ctx.moveTo(p, CELL_SIZE/2); ctx.lineTo(p, canvas.height - CELL_SIZE/2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(CELL_SIZE/2, p); ctx.lineTo(canvas.width - CELL_SIZE/2, p); ctx.stroke();
+        }
+        // 特異点（中央）
+        ctx.fillStyle = '#ff4444';
+        ctx.beginPath(); ctx.arc(7.5 * CELL_SIZE, 7.5 * CELL_SIZE, 4, 0, Math.PI*2); ctx.fill();
+
+        // 駒
+        for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+                let val = board[r][c];
+                if (val === 'E') continue;
+                
+                let x = c * CELL_SIZE + CELL_SIZE / 2;
+                let y = r * CELL_SIZE + CELL_SIZE / 2;
+                
+                ctx.fillStyle = getColor(val);
+                ctx.strokeStyle = '#deff9a';
+                ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(x, y, CELL_SIZE * 0.4, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+                
+                if (typeof val === 'number') {
+                    ctx.fillStyle = val > 50 ? '#fff' : '#000';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(val.toString(), x, y);
+                }
+            }
+        }
+    }
+
+    // --- UI更新 ---
+    function updateUI() {
+        if (gameOver) return;
+        
+        let p2Name = gameMode === "CPU" ? "CPU" : "P2";
+        let turnText = currentPlayer === 1 ? "P1のターン (黒狙い)" : `${p2Name}のターン (白狙い)`;
+        let turnColor = currentPlayer === 1 ? "var(--accent)" : "#ff9999";
+        
+        document.getElementById('turn-info').innerText = turnText;
+        document.getElementById('turn-info').style.color = turnColor;
+        document.getElementById('obs-info').innerHTML = `観測残<br>P1: ${obsLeft[1]} / ${p2Name}: ${obsLeft[2]}`;
+
+        // ラジオボタンの制御 (10%, 90% 連続禁止)
+        const radios = document.querySelectorAll('input[name="prob"]');
+        let currentProb = document.querySelector('input[name="prob"]:checked').value;
+        
+        if (lastExtreme[currentPlayer]) {
+            radios.forEach(r => {
+                if(r.value == 10 || r.value == 90) r.disabled = true;
+            });
+            if (currentProb == 10 || currentProb == 90) {
+                document.querySelector(`input[name="prob"][value="${currentPlayer === 1 ? 70 : 30}"]`).checked = true;
+            }
+        } else {
+            radios.forEach(r => r.disabled = false);
+        }
+        
+        document.getElementById('btn-obs').disabled = !hasPlaced || obsLeft[currentPlayer] <= 0;
+        document.getElementById('btn-pass').disabled = !hasPlaced;
+    }
+
+    // --- 操作処理 ---
+    canvas.addEventListener('click', (e) => {
+        if (gameOver || hasPlaced) return;
+        if (gameMode === "CPU" && currentPlayer === 2) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+
+        let c = Math.floor(x / CELL_SIZE);
+        let r = Math.floor(y / CELL_SIZE);
+
+        if (r >= 0 && r < SIZE && c >= 0 && c < SIZE && board[r][c] === 'E') {
+            let prob = parseInt(document.querySelector('input[name="prob"]:checked').value);
+            if (lastExtreme[currentPlayer] && (prob === 10 || prob === 90)) return; // 安全装置
+
+            // 履歴保存 (ディープコピー)
+            historyStack.push(JSON.parse(JSON.stringify(board)));
+            
+            board[r][c] = prob;
+            lastExtreme[currentPlayer] = (prob === 10 || prob === 90);
+            hasPlaced = true;
+            document.getElementById('gimmick-msg').innerText = "";
+            
+            drawBoard();
+            updateUI();
+        }
+    });
+
+    // --- ゲーム進行ロジック ---
+    function actionObserve() {
+        obsLeft[currentPlayer]--;
+        backupForObs = JSON.parse(JSON.stringify(board));
+        
+        for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+                let v = board[r][c];
+                if (typeof v === 'number') {
+                    board[r][c] = Math.random() < (v/100) ? 'B' : 'W';
+                }
+            }
+        }
+        
+        document.getElementById('gimmick-msg').innerText = "⚠ 観測中...";
+        drawBoard();
+        
+        setTimeout(() => {
+            let [bWin, wWin] = checkWinner();
+            if (bWin || wWin) {
+                let msg = (bWin && !wWin) ? "黒の勝ち！" : (wWin && !bWin) ? "白の勝ち！" : "引き分け！";
+                alert(`決着：${msg}`);
+                gameOver = true;
+            } else {
+                alert("決着ならず！元の状態に戻します。");
+                board = backupForObs;
+                finishTurn();
+            }
+        }, 300);
+    }
+
+    function actionPass() { finishTurn(); }
+
+    function finishTurn() {
+        document.getElementById('gimmick-msg').innerText = "";
+        
+        if (isPartyMode && !gameOver) triggerAllGimmicks();
+        
+        hasPlaced = false;
+        currentPlayer = currentPlayer === 1 ? 2 : 1;
+        updateUI();
+        drawBoard();
+
+        if (gameMode === "CPU" && currentPlayer === 2 && !gameOver) {
+            setTimeout(cpuTurn, 600);
+        }
+    }
+
+    // --- CPU思考 ---
+    function cpuTurn() {
+        if (gameOver) return;
+        let empty = [];
+        for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+                if (board[r][c] === 'E') empty.push({r, c});
+            }
+        }
+        if (empty.length === 0) { finishTurn(); return; }
+
+        let target = empty[Math.floor(Math.random() * empty.length)];
+        let prob = lastExtreme[2] ? 30 : 10;
+        
+        historyStack.push(JSON.parse(JSON.stringify(board)));
+        board[target.r][target.c] = prob;
+        lastExtreme[2] = (prob === 10 || prob === 90);
+        hasPlaced = true;
+        
+        document.getElementById('gimmick-msg').innerText = "CPUが配置しました...";
+        drawBoard();
+        updateUI(); // CPU配置後に「観測せず交代」状態などを更新（ボタンはDisabled維持だが内部フラグ用）
+
+        setTimeout(() => {
+            if (gameOver) return;
+            let placedCount = SIZE * SIZE - empty.length;
+            let obsChance = 0.05 + (placedCount * 0.015);
+            if (obsLeft[2] > 0 && Math.random() < obsChance) {
+                actionObserve();
+            } else {
+                actionPass();
+            }
+        }, 800);
+    }
+
+    function actionUndo() {
+        if (historyStack.length > 0 && !(gameMode === "CPU" && currentPlayer === 2)) {
+            board = historyStack.pop();
+            hasPlaced = false;
+            document.getElementById('gimmick-msg').innerText = "Undo：一手戻しました";
+            drawBoard();
+            updateUI();
+        }
+    }
+
+    // --- 判定処理 ---
+    function checkWinner() {
+        let bWin = false, wWin = false;
+        const check5 = (seq) => {
+            let bCnt = 0, wCnt = 0;
+            for(let cell of seq) {
+                if(cell === 'B') { bCnt++; wCnt = 0; }
+                else if(cell === 'W') { wCnt++; bCnt = 0; }
+                else { bCnt = 0; wCnt = 0; }
+                if(bCnt >= 5) bWin = true;
+                if(wCnt >= 5) wWin = true;
+            }
+        };
+        // 横と縦
+        for (let i = 0; i < SIZE; i++) {
+            check5(board[i]);
+            check5(board.map(row => row[i]));
+        }
+        // 斜め
+        for (let i = 0; i <= SIZE - 5; i++) {
+            for (let j = 0; j <= SIZE - 5; j++) {
+                let diag1 = [], diag2 = [];
+                for (let k = 0; k < 5; k++) {
+                    diag1.push(board[i+k][j+k]);
+                    diag2.push(board[i+k][j+4-k]);
+                }
+                check5(diag1); check5(diag2);
+            }
+        }
+        return [bWin, wWin];
+    }
+
+    // --- パーティギミック全10種 ---
+    function triggerAllGimmicks() {
+        const gimmicks = ["METEOR", "INVERSION", "WARP", "SHIFT", "SINGULARITY", "BLACK_HOLE", "TSUNAMI", "DECAY", "CLONE", "PULSE"];
+        const gimmick = gimmicks[Math.floor(Math.random() * gimmicks.length)];
+        const getEmpty = () => {
+            let res = [];
+            for(let r=0; r<SIZE; r++) for(let c=0; c<SIZE; c++) if(board[r][c]==='E') res.push({r,c});
+            return res;
+        };
+        const getPlaced = () => {
+            let res = [];
+            for(let r=0; r<SIZE; r++) for(let c=0; c<SIZE; c++) if(board[r][c]!=='E') res.push({r,c});
+            return res;
+        };
+
+        if (gimmick === "METEOR") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 量子メテオ：50%の駒が大量に降下！";
+            let empty = getEmpty();
+            empty.sort(()=>Math.random()-0.5).slice(0, 10).forEach(p => board[p.r][p.c] = 50);
+        } else if (gimmick === "INVERSION") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 確率反転：3x3エリアの確率が逆転！";
+            let tr = Math.floor(Math.random() * (SIZE-3));
+            let tc = Math.floor(Math.random() * (SIZE-3));
+            for(let r=tr; r<tr+3; r++) for(let c=tc; c<tc+3; c++) 
+                if(typeof board[r][c] === 'number') board[r][c] = 100 - board[r][c];
+        } else if (gimmick === "WARP") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 空間位相同期：20個のマスが入れ替わり！";
+            for(let i=0; i<10; i++) {
+                let r1 = Math.floor(Math.random()*SIZE), c1 = Math.floor(Math.random()*SIZE);
+                let r2 = Math.floor(Math.random()*SIZE), c2 = Math.floor(Math.random()*SIZE);
+                let tmp = board[r1][c1]; board[r1][c1] = board[r2][c2]; board[r2][c2] = tmp;
+            }
+        } else if (gimmick === "SHIFT") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 不確定性変動：確率がランダム化！";
+            getPlaced().sort(()=>Math.random()-0.5).slice(0, Math.floor(Math.random()*6)+3).forEach(p => {
+                if(typeof board[p.r][p.c] === 'number') board[p.r][p.c] = Math.floor(Math.random()*99)+1;
+            });
+        } else if (gimmick === "SINGULARITY") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 特異点降下：100%確定駒がドロップ！";
+            let empty = getEmpty();
+            if(empty.length > 0) {
+                let t = empty[Math.floor(Math.random()*empty.length)];
+                board[t.r][t.c] = Math.random() < 0.5 ? 'B' : 'W';
+            }
+        } else if (gimmick === "BLACK_HOLE") {
+            document.getElementById('gimmick-msg').innerText = "⚠ ブラックホール：全駒が中央へ引き寄せ！";
+            let center = 7;
+            let pieces = getPlaced().map(p => ({d: Math.abs(p.r-center)+Math.abs(p.c-center), r:p.r, c:p.c}));
+            pieces.sort((a,b)=>a.d - b.d).forEach(p => {
+                if(p.d === 0) return;
+                let dr = center > p.r ? 1 : (center < p.r ? -1 : 0);
+                let dc = center > p.c ? 1 : (center < p.c ? -1 : 0);
+                if(board[p.r+dr][p.c+dc] === 'E') {
+                    board[p.r+dr][p.c+dc] = board[p.r][p.c];
+                    board[p.r][p.c] = 'E';
+                }
+            });
+        } else if (gimmick === "TSUNAMI") {
+            let dirs = [{r:0,c:1,n:"右"}, {r:0,c:-1,n:"左"}, {r:1,c:0,n:"下"}, {r:-1,c:0,n:"上"}];
+            let d = dirs[Math.floor(Math.random()*dirs.length)];
+            document.getElementById('gimmick-msg').innerText = `⚠ ツナミ：全駒が${d.n}へ押し流される！`;
+            let rStart = d.r > 0 ? SIZE-1 : 0, rEnd = d.r > 0 ? -1 : SIZE, rStep = d.r > 0 ? -1 : 1;
+            let cStart = d.c > 0 ? SIZE-1 : 0, cEnd = d.c > 0 ? -1 : SIZE, cStep = d.c > 0 ? -1 : 1;
+            for(let r=rStart; r!==rEnd; r+=rStep) {
+                for(let c=cStart; c!==cEnd; c+=cStep) {
+                    if(board[r][c] !== 'E') {
+                        let nr = r+d.r, nc = c+d.c;
+                        if(nr>=0 && nr<SIZE && nc>=0 && nc<SIZE && board[nr][nc]==='E') {
+                            board[nr][nc] = board[r][c]; board[r][c] = 'E';
+                        }
+                    }
+                }
+            }
+        } else if (gimmick === "DECAY") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 放射性崩壊：ランダムな駒が消滅！";
+            getPlaced().sort(()=>Math.random()-0.5).slice(0, Math.floor(Math.random()*3)+1).forEach(p => board[p.r][p.c] = 'E');
+        } else if (gimmick === "CLONE") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 量子クローン：駒が隣接マスに増殖！";
+            getPlaced().sort(()=>Math.random()-0.5).slice(0, 2).forEach(p => {
+                let nbs = [[0,1],[1,0],[0,-1],[-1,0]].map(d=>({r:p.r+d[0], c:p.c+d[1]}))
+                          .filter(n=> n.r>=0 && n.r<SIZE && n.c>=0 && n.c<SIZE && board[n.r][n.c]==='E');
+                if(nbs.length > 0) {
+                    let nb = nbs[Math.floor(Math.random()*nbs.length)];
+                    board[nb.r][nb.c] = board[p.r][p.c];
+                }
+            });
+        } else if (gimmick === "PULSE") {
+            document.getElementById('gimmick-msg').innerText = "⚠ 空間パルス：3x3エリアがシャッフル！";
+            let tr = Math.floor(Math.random() * (SIZE-3)), tc = Math.floor(Math.random() * (SIZE-3));
+            let vals = [];
+            for(let r=tr; r<tr+3; r++) for(let c=tc; c<tc+3; c++) vals.push(board[r][c]);
+            vals.sort(()=>Math.random()-0.5);
+            let idx = 0;
+            for(let r=tr; r<tr+3; r++) for(let c=tc; c<tc+3; c++) { board[r][c] = vals[idx]; idx++; }
+        }
+    }
+</script>
+</body>
+</html>
